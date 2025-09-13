@@ -1,4 +1,4 @@
-module test
+module github.com/Phaseant/tg-reply-bot
 
 go 1.24.2
 
@@ -9,7 +9,6 @@ require (
 	github.com/gotd/td v0.131.0
 	github.com/gotd/td/examples v0.0.0-20250911083707-2e93c488ace9
 	github.com/joho/godotenv v1.5.1
-	go.etcd.io/bbolt v1.3.11
 	go.uber.org/zap v1.27.0
 	golang.org/x/time v0.8.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
