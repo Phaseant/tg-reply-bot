@@ -31,6 +31,8 @@ import (
 	"github.com/gotd/td/tg"
 )
 
+// stolen from https://github.com/gotd/td/blob/main/examples/userbot/main.go
+
 func sessionFolder(phone string) string {
 	var out []rune
 	for _, r := range phone {
@@ -48,7 +50,6 @@ func run(ctx context.Context) error {
 	flag.BoolVar(&arg.FillPeerStorage, "fill-peer-storage", false, "fill peer storage")
 	flag.Parse()
 
-	// Загружаем переменные окружения из .env
 	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
 		return errors.Wrap(err, "load env")
 	}
@@ -71,7 +72,6 @@ func run(ctx context.Context) error {
 		return errors.New("no reply msg")
 	}
 
-	// Директория для сессии
 	sessionDir := filepath.Join("session", sessionFolder(phone))
 	if err := os.MkdirAll(sessionDir, 0700); err != nil {
 		return err
@@ -80,12 +80,11 @@ func run(ctx context.Context) error {
 
 	fmt.Printf("Storing session in %s, logs in %s\n", sessionDir, logFilePath)
 
-	// Логирование в файл
 	logWriter := zapcore.AddSync(&lj.Logger{
 		Filename:   logFilePath,
 		MaxBackups: 3,
-		MaxSize:    1, // MB
-		MaxAge:     7, // days
+		MaxSize:    1,
+		MaxAge:     7,
 	})
 	logCore := zapcore.NewCore(
 		zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()),
@@ -95,12 +94,10 @@ func run(ctx context.Context) error {
 	lg := zap.New(logCore)
 	defer func() { _ = lg.Sync() }()
 
-	// Сохранение сессии
 	sessionStorage := &telegram.FileSessionStorage{
 		Path: filepath.Join(sessionDir, "session.json"),
 	}
 
-	// Хранилище для peer storage
 	db, err := pebbledb.Open(filepath.Join(sessionDir, "peers.pebble.db"), &pebbledb.Options{})
 	if err != nil {
 		return errors.Wrap(err, "create pebble storage")
@@ -108,20 +105,17 @@ func run(ctx context.Context) error {
 	peerDB := pebble.NewPeerStorage(db)
 	lg.Info("Storage", zap.String("path", sessionDir))
 
-	// Dispatcher для апдейтов
 	dispatcher := tg.NewUpdateDispatcher()
 
-	// FLOOD_WAIT хендлер
 	waiter := floodwait.NewWaiter().WithCallback(func(ctx context.Context, wait floodwait.FloodWait) {
 		lg.Warn("Flood wait", zap.Duration("wait", wait.Duration))
 		fmt.Println("Got FLOOD_WAIT. Will retry after", wait.Duration)
 	})
 
-	// Настройки клиента
 	options := telegram.Options{
 		Logger:         lg,
 		SessionStorage: sessionStorage,
-		UpdateHandler:  dispatcher, // напрямую без updateRecovery
+		UpdateHandler:  dispatcher,
 		Middlewares: []telegram.Middleware{
 			waiter,
 			ratelimit.New(rate.Every(time.Millisecond*100), 5),
@@ -130,32 +124,26 @@ func run(ctx context.Context) error {
 	client := telegram.NewClient(appID, appHash, options)
 	api := client.API()
 
-	// Резолвер для кэша peers
 	resolver := storage.NewResolverCache(peer.Plain(api), peerDB)
 	_ = resolver
 
-	// Запоминаем время старта, чтобы не реагировать на старые апдейты
 	startTime := time.Now()
 
-	// Обработка входящих сообщений
 	dispatcher.OnNewMessage(func(ctx context.Context, e tg.Entities, u *tg.UpdateNewMessage) error {
 		msg, ok := u.Message.(*tg.Message)
 		if !ok {
 			return nil
 		}
 
-		// Игнорировать исходящие
 		if msg.Out {
 			return nil
 		}
 
-		// Игнорировать сообщения, отправленные до старта бота
 		msgTime := time.Unix(int64(msg.Date), 0)
 		if msgTime.Before(startTime) {
 			return nil
 		}
 
-		// Только приватные чаты
 		if peer, ok := msg.PeerID.(*tg.PeerUser); ok {
 			userID := peer.UserID
 			fmt.Printf("Got message from user %d: %q\n", userID, msg.Message)
@@ -175,17 +163,14 @@ func run(ctx context.Context) error {
 		return nil
 	})
 
-	// Авторизация
 	flow := auth.NewFlow(examples.Terminal{PhoneNumber: phone}, auth.SendCodeOptions{})
 
 	return waiter.Run(ctx, func(ctx context.Context) error {
 		return client.Run(ctx, func(ctx context.Context) error {
-			// Авторизация если нужно
 			if err := client.Auth().IfNecessary(ctx, flow); err != nil {
 				return errors.Wrap(err, "auth")
 			}
 
-			// Информация о себе
 			self, err := client.Self(ctx)
 			if err != nil {
 				return errors.Wrap(err, "call self")
@@ -213,7 +198,6 @@ func run(ctx context.Context) error {
 				fmt.Println("Filled")
 			}
 
-			// Запуск ожидания апдейтов
 			fmt.Println("Listening for updates. Interrupt (Ctrl+C) to stop.")
 			<-ctx.Done()
 			return ctx.Err()
