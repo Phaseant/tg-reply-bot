@@ -129,6 +129,8 @@ func run(ctx context.Context) error {
 
 	startTime := time.Now()
 
+	lastReminder := make(map[int64]time.Time)
+
 	dispatcher.OnNewMessage(func(ctx context.Context, e tg.Entities, u *tg.UpdateNewMessage) error {
 		msg, ok := u.Message.(*tg.Message)
 		if !ok {
@@ -147,6 +149,14 @@ func run(ctx context.Context) error {
 		if peer, ok := msg.PeerID.(*tg.PeerUser); ok {
 			userID := peer.UserID
 			fmt.Printf("Got message from user %d: %q\n", userID, msg.Message)
+
+			if _, ok := lastReminder[userID]; ok {
+				if sameDay(time.Now(), lastReminder[userID]) {
+					return nil
+				}
+			}
+
+			lastReminder[userID] = time.Now()
 
 			_, err := client.API().MessagesSendMessage(ctx, &tg.MessagesSendMessageRequest{
 				Peer: &tg.InputPeerUser{
@@ -203,6 +213,12 @@ func run(ctx context.Context) error {
 			return ctx.Err()
 		})
 	})
+}
+
+func sameDay(t1, t2 time.Time) bool {
+	y1, m1, d1 := t1.Date()
+	y2, m2, d2 := t2.Date()
+	return y1 == y2 && m1 == m2 && d1 == d2
 }
 
 func main() {
